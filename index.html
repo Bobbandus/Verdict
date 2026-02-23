@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VERDICT — The Decision Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080808;
+      --surface:   #0f0f0f;
+      --surface2:  #161616;
+      --surface3:  #1d1d1d;
+      --border:    #1f1f1f;
+      --border2:   #2e2e2e;
+      --red:       #c91f00;
+      --red-hot:   #ff2e00;
+      --red-dim:   #5c0d00;
+      --red-glow:  rgba(201,31,0,0.22);
+      --text:      #e0d8cf;
+      --text-muted:#6a6058;
+      --text-dim:  #302c28;
+      --ok:        #1f6e31;
+      --font-h:    'Bebas Neue', serif;
+      --font-m:    'IBM Plex Mono', monospace;
+      --r:         2px;
+      --ease:      200ms cubic-bezier(.4,0,.2,1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-m);
+      font-size: 13px;
+      line-height: 1.65;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* grain */
+    body::before {
+      content:'';
+      position:fixed;
+      inset:0;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+      pointer-events:none;
+      z-index:9999;
+      opacity:.7;
+    }
+
+    /* scanlines */
+    body::after {
+      content:'';
+      position:fixed;
+      inset:0;
+      background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.07) 2px,rgba(0,0,0,.07) 4px);
+      pointer-events:none;
+      z-index:9998;
+    }
+
+    /* ── LAYOUT ── */
+    .wrap {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 0 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ── */
+    header {
+      padding: 28px 0 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .logo {
+      font-family: var(--font-h);
+      font-size: 54px;
+      letter-spacing: 5px;
+      color: var(--text);
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-pip {
+      width: 9px; height: 9px;
+      background: var(--red);
+      flex-shrink: 0;
+      margin-bottom: 5px;
+      animation: pip 2s ease-in-out infinite;
+    }
+    @keyframes pip {
+      0%,100%{opacity:1;box-shadow:0 0 10px var(--red);}
+      50%{opacity:.2;box-shadow:none;}
+    }
+
+    .tagline {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-top: 3px;
+    }
+
+    .hdr-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-pip {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: background var(--ease), box-shadow var(--ease);
+    }
+    .status-pip.on  { background:#2ecc71; box-shadow:0 0 6px #2ecc71; }
+    .status-pip.err { background:var(--red); box-shadow:0 0 6px var(--red); }
+
+    .status-lbl {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 2px;
+    }
+
+    /* ── MAIN ── */
+    main {
+      flex: 1;
+      padding: 28px 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    /* ── INITIAL ── */
+    #initialScreen {
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      animation: fadeUp .5s ease-out;
+      padding-bottom: 60px;
+    }
+
+    .init-label {
+      font-size: 10px;
+      color: var(--red);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    .init-h {
+      font-family: var(--font-h);
+      font-size: 40px;
+      letter-spacing: 2px;
+      line-height: 1.1;
+      color: var(--text);
+    }
+    .init-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      max-width: 480px;
+      line-height: 1.9;
+    }
+
+    /* ── CONVERSATION HISTORY ── */
+    #conversation { display: flex; flex-direction: column; }
+
+    .conv-item {
+      border-bottom: 1px solid var(--border);
+      padding: 18px 0;
+      animation: fadeUp .25s ease-out;
+    }
+
+    .conv-q {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .conv-q-prefix { font-size: 11px; color: var(--red); flex-shrink:0; margin-top:1px; }
+    .conv-q-text   { font-size: 13px; color: var(--text); line-height:1.65; }
+
+    .conv-a {
+      display: flex;
+      gap: 10px;
+    }
+    .conv-a-arrow  { font-size: 11px; color: var(--red-hot); flex-shrink:0; margin-top:1px; }
+    .conv-a-text   { font-size: 12px; color: var(--text-muted); font-style:italic; }
+
+    /* ── ACTIVE QUESTION ── */
+    #activeQ {
+      padding: 24px 0 0;
+      animation: fadeUp .3s ease-out;
+    }
+    .aq-label {
+      font-size: 10px;
+      color: var(--red);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .aq-text {
+      font-size: 19px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.5;
+      margin-bottom: 6px;
+    }
+    .aq-ctx {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-bottom: 22px;
+    }
+
+    /* ── TYPING ── */
+    #typingIndicator {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 28px 0;
+    }
+    .tdots { display:flex; gap:6px; }
+    .tdot {
+      width:6px; height:6px;
+      background: var(--red);
+      border-radius: 50%;
+      animation: tdot 1.2s ease-in-out infinite;
+    }
+    .tdot:nth-child(2){animation-delay:.2s;}
+    .tdot:nth-child(3){animation-delay:.4s;}
+    @keyframes tdot {
+      0%,60%,100%{transform:translateY(0);opacity:.3;}
+      30%{transform:translateY(-7px);opacity:1;}
+    }
+    .tlbl { font-size:10px; color:var(--text-muted); letter-spacing:2px; }
+
+    /* ── INPUT PANEL ── */
+    #inputPanel {
+      position: sticky;
+      bottom: 0;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      padding: 18px 0 26px;
+    }
+
+    /* shared inputs */
+    input[type=text], input[type=email], input[type=number], input[type=date], textarea {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      color: var(--text);
+      font-family: var(--font-m);
+      font-size: 13px;
+      padding: 11px 14px;
+      outline: none;
+      border-radius: var(--r);
+      width: 100%;
+      transition: border-color var(--ease), box-shadow var(--ease);
+      -webkit-appearance: none;
+    }
+    input[type=text]:focus, input[type=email]:focus,
+    input[type=number]:focus, input[type=date]:focus, textarea:focus {
+      border-color: var(--red);
+      box-shadow: 0 0 0 3px var(--red-glow);
+    }
+    input[type=date]::-webkit-calendar-picker-indicator {
+      filter: invert(.4) sepia(1) saturate(4) hue-rotate(295deg);
+      cursor: pointer;
+    }
+    textarea { resize:none; min-height:80px; max-height:220px; overflow-y:auto; }
+    input[type=number]::-webkit-inner-spin-button { opacity:.3; }
+
+    /* ── BUTTONS ── */
+    .btn-send {
+      background: var(--red);
+      color: var(--text);
+      border: none;
+      font-family: var(--font-m);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      padding: 11px 22px;
+      cursor: pointer;
+      transition: background var(--ease), transform var(--ease);
+      border-radius: var(--r);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-send:hover  { background: var(--red-hot); }
+    .btn-send:active { transform: translateY(1px); background: var(--red-dim); }
+    .btn-send:disabled { opacity:.35; cursor:not-allowed; transform:none; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border2);
+      font-family: var(--font-m);
+      font-size: 11px;
+      letter-spacing: 2px;
+      padding: 10px 18px;
+      cursor: pointer;
+      transition: all var(--ease);
+      border-radius: var(--r);
+      white-space: nowrap;
+    }
+    .btn-ghost:hover  { border-color:var(--red); color:var(--text); }
+    .btn-ghost:active { transform:translateY(1px); }
+
+    .irow { display:flex; gap:10px; align-items:flex-end; }
+
+    .hint {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 6px;
+      letter-spacing: 1px;
+    }
+
+    /* ── FREETEXT ── */
+    #modeFreetext .irow { align-items: flex-end; }
+    .char-ct { font-size:10px; color:var(--text-dim); text-align:right; margin-top:5px; }
+
+    /* ── YESNO ── */
+    .yesno-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .btn-yesno {
+      padding: 22px 16px;
+      font-family: var(--font-h);
+      font-size: 30px;
+      letter-spacing: 4px;
+      border: 1px solid var(--border2);
+      background: var(--surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--ease);
+      border-radius: var(--r);
+    }
+    .btn-yesno:hover {
+      border-color: var(--red);
+      color: var(--text);
+      background: var(--surface2);
+      box-shadow: 0 0 24px var(--red-glow) inset;
+    }
+    .btn-yesno:active { transform:translateY(2px); }
+
+    /* ── CHOICE / MULTISELECT ── */
+    .choice-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .btn-choice {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      color: var(--text-muted);
+      font-family: var(--font-m);
+      font-size: 12px;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: all var(--ease);
+      border-radius: var(--r);
+      text-align: left;
+      line-height: 1.4;
+    }
+    .btn-choice:hover  { border-color:var(--red); color:var(--text); background:var(--surface2); }
+    .btn-choice.sel    { background:var(--red); border-color:var(--red-hot); color:#fff; box-shadow:0 0 14px var(--red-glow); }
+    .btn-choice:active { transform:translateY(1px); }
+
+    /* ── RANGE ── */
+    .range-disp {
+      font-family: var(--font-h);
+      font-size: 26px;
+      letter-spacing: 2px;
+      color: var(--text);
+      margin-bottom: 18px;
+    }
+    .range-disp em { color: var(--red); font-style:normal; }
+
+    .rslider-wrap {
+      position: relative;
+      height: 32px;
+    }
+
+    .rtrack {
+      position:absolute;
+      top:50%; transform:translateY(-50%);
+      left:0; right:0;
+      height: 3px;
+      background: var(--border2);
+      border-radius: 3px;
+    }
+    .rfill {
+      position:absolute; top:0; height:100%;
+      background: var(--red);
+      box-shadow: 0 0 8px var(--red-glow);
+      border-radius: 3px;
+    }
+
+    .rslider-wrap input[type=range] {
+      position:absolute;
+      width:100%; height:100%; top:0; left:0;
+      opacity:0; cursor:pointer; pointer-events:all; margin:0;
+      -webkit-appearance:none;
+    }
+
+    .rthumb {
+      position:absolute;
+      top:50%; transform:translate(-50%,-50%);
+      width:16px; height:16px;
+      background: var(--text);
+      border: 2px solid var(--red);
+      border-radius: 50%;
+      pointer-events:none;
+      box-shadow: 0 0 8px var(--red-glow);
+    }
+
+    .rlabels {
+      display:flex; justify-content:space-between;
+      font-size:10px; color:var(--text-dim);
+      margin-top:4px;
+    }
+
+    .range-opts {
+      display:flex; gap:8px; align-items:center; margin-top:14px;
+    }
+    .snap-btn {
+      background:transparent;
+      border:1px solid var(--border2);
+      color:var(--text-dim);
+      font-family:var(--font-m);
+      font-size:10px; letter-spacing:1px;
+      padding:4px 10px; cursor:pointer;
+      transition:all var(--ease); border-radius:var(--r);
+    }
+    .snap-btn.on { border-color:var(--red); color:var(--red); }
+
+    /* ── SCALE ── */
+    .scale-val {
+      font-family: var(--font-h);
+      font-size: 52px;
+      letter-spacing: 4px;
+      color: var(--red);
+      line-height: 1;
+      margin-bottom: 10px;
+      text-shadow: 0 0 24px var(--red-glow);
+      transition: color .1s;
+    }
+    .scale-wrap {
+      position:relative; height:40px;
+      display:flex; align-items:center;
+    }
+    .strack {
+      position:absolute; left:0; right:0;
+      height:3px; background:var(--border2); border-radius:3px;
+    }
+    .sfill {
+      position:absolute; left:0; height:100%;
+      background:var(--red);
+      box-shadow:0 0 8px var(--red-glow);
+      border-radius:3px;
+      transition:width .08s;
+    }
+    .scale-wrap input[type=range] {
+      position:relative; width:100%; z-index:2;
+      opacity:0; cursor:pointer; height:100%; margin:0;
+      -webkit-appearance:none;
+    }
+    .slbls {
+      display:flex; justify-content:space-between;
+      font-size:10px; color:var(--text-dim); margin-top:6px;
+    }
+
+    /* ── EMAIL feedback ── */
+    .efb { font-size:10px; margin-top:5px; letter-spacing:1px; }
+    .efb.ok  { color:#2ecc71; }
+    .efb.bad { color:var(--red); }
+
+    /* ── NUMBER ── */
+    .num-row { display:flex; gap:10px; align-items:center; }
+    .num-ctrl {
+      display:flex;
+      border:1px solid var(--border2);
+      border-radius:var(--r);
+      overflow:hidden;
+    }
+    .num-step {
+      background:var(--surface2); border:none;
+      color:var(--text); font-family:var(--font-m);
+      font-size:18px; width:44px; height:44px;
+      cursor:pointer; transition:background var(--ease);
+    }
+    .num-step:hover  { background:var(--surface3); }
+    .num-step:active { background:var(--red-dim); }
+    .num-unit { font-size:11px; color:var(--text-muted); letter-spacing:2px; }
+
+    /* ── FILE ── */
+    .dropzone {
+      border: 1px dashed var(--border2);
+      background: var(--surface);
+      padding: 30px 20px;
+      text-align:center;
+      cursor:pointer;
+      transition:all var(--ease);
+      border-radius:var(--r);
+    }
+    .dropzone:hover, .dropzone.over {
+      border-color:var(--red);
+      background:var(--surface2);
+      box-shadow:0 0 20px var(--red-glow) inset;
+    }
+    .dz-icon { font-size:22px; margin-bottom:6px; }
+    .dz-text { font-size:12px; color:var(--text-muted); letter-spacing:1px; }
+    .dz-sub  { font-size:10px; color:var(--text-dim); margin-top:4px; }
+
+    .fprev {
+      display:flex; align-items:center; gap:12px;
+      padding:12px 14px;
+      background:var(--surface);
+      border:1px solid var(--border2); border-radius:var(--r);
+    }
+    .fprev-name { flex:1; font-size:12px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .fprev-sz   { font-size:10px; color:var(--text-muted); }
+    .fclear { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; transition:color var(--ease); }
+    .fclear:hover { color:var(--red); }
+
+    /* ── RECOMMENDATION ── */
+    #recCard {
+      border:1px solid var(--border2);
+      border-top:3px solid var(--red);
+      background:var(--surface);
+      padding:28px;
+      border-radius:var(--r);
+      box-shadow:0 0 50px rgba(201,31,0,.07);
+      animation:fadeUp .4s ease-out;
+      margin-bottom: 24px;
+    }
+    .rec-hdr {
+      display:flex; align-items:center; gap:12px; margin-bottom:20px;
+    }
+    .rec-title { font-family:var(--font-h); font-size:30px; letter-spacing:3px; }
+    .rec-badge {
+      font-size:9px; letter-spacing:2px;
+      color:var(--red); border:1px solid var(--red-dim);
+      padding:3px 8px; margin-left:auto;
+    }
+    .rec-body {
+      font-size:13px; color:var(--text);
+      line-height:1.9; white-space:pre-wrap;
+    }
+    .rec-acts {
+      display:flex; gap:10px; margin-top:24px;
+      padding-top:20px; border-top:1px solid var(--border);
+      flex-wrap:wrap;
+    }
+
+    /* ── CHAT ── */
+    #chatContainer { display:flex; flex-direction:column; gap:16px; margin-bottom:8px; }
+    .cmsg { display:flex; gap:10px; animation:fadeUp .2s ease-out; }
+    .cmsg-role { font-size:10px; color:var(--red); letter-spacing:2px; flex-shrink:0; margin-top:2px; min-width:28px; }
+    .cmsg-role.u { color:var(--text-muted); }
+    .cmsg-text   { font-size:13px; color:var(--text); line-height:1.7; }
+    .cmsg-text.u { color:var(--text-muted); }
+
+    /* ── CONFIDENCE METER (in recommendation) ── */
+    .conf-wrap { margin-top:16px; }
+    .conf-label { font-size:10px; color:var(--text-muted); letter-spacing:2px; margin-bottom:6px; }
+    .conf-bar { height:3px; background:var(--border2); border-radius:2px; }
+    .conf-fill { height:100%; background:var(--red); box-shadow:0 0 8px var(--red-glow); border-radius:2px; transition:width .6s ease-out; }
+
+    /* ── UTILS ── */
+    .hidden { display:none !important; }
+    .mt8  { margin-top:8px; }
+    .mt12 { margin-top:12px; }
+
+    @keyframes fadeUp {
+      from{opacity:0;transform:translateY(10px);}
+      to{opacity:1;transform:translateY(0);}
+    }
+
+    ::-webkit-scrollbar { width:3px; }
+    ::-webkit-scrollbar-track { background:var(--bg); }
+    ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+    ::-webkit-scrollbar-thumb:hover { background:var(--red-dim); }
+
+    @media(max-width:480px){
+      .logo{font-size:38px;}
+      .init-h{font-size:28px;}
+      .yesno-grid{grid-template-columns:1fr 1fr;}
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="logo">VERDICT<div class="logo-pip"></div></div>
+      <div class="tagline">// The Decision Engine</div>
+    </div>
+    <div class="hdr-right">
+      <div class="status-pip" id="sPip"></div>
+      <div class="status-lbl" id="sLbl">IDLE</div>
+    </div>
+  </header>
+
+  <main>
+    <!-- INITIAL -->
+    <div id="initialScreen">
+      <div>
+        <div class="init-label">// Ny session</div>
+        <div class="init-h">Vad behöver<br>du ett beslut om?</div>
+      </div>
+      <div class="init-sub">
+        Beskriv din fråga eller ditt beslutsproblem — VERDICT ställer
+        precisa följdfrågor och levererar en välgrundad rekommendation.
+      </div>
+      <div>
+        <textarea id="initInput" rows="3" placeholder="Ex: Jag funderar på att byta karriär till tech..."></textarea>
+        <div class="hint">ENTER för att skicka · SHIFT+ENTER för radbrytning</div>
+        <div class="mt12">
+          <button class="btn-send" id="startBtn">INITIERA SESSION →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONV HISTORY -->
+    <div id="conversation"></div>
+
+    <!-- ACTIVE QUESTION -->
+    <div id="activeQ" class="hidden">
+      <div class="aq-label">// VERDICT FRÅGAR</div>
+      <div class="aq-text" id="aqText"></div>
+      <div class="aq-ctx"  id="aqCtx"></div>
+    </div>
+
+    <!-- TYPING -->
+    <div id="typingIndicator" class="hidden">
+      <div class="tdots"><div class="tdot"></div><div class="tdot"></div><div class="tdot"></div></div>
+      <div class="tlbl">ANALYSERAR</div>
+    </div>
+
+    <!-- REC CARD -->
+    <div id="recCard" class="hidden">
+      <div class="rec-hdr">
+        <div class="rec-title">REKOMMENDATION</div>
+        <div class="rec-badge">VERDICT</div>
+      </div>
+      <div class="rec-body" id="recBody"></div>
+      <div class="conf-wrap hidden" id="confWrap">
+        <div class="conf-label">KONFIDENSGRAD</div>
+        <div class="conf-bar"><div class="conf-fill" id="confFill" style="width:0%"></div></div>
+      </div>
+      <div class="rec-acts">
+        <button class="btn-send" id="argueBtn">ARGUMENTERA</button>
+        <button class="btn-ghost" id="resetBtn">NY SESSION</button>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div id="chatContainer" class="hidden"></div>
+  </main>
+
+  <!-- INPUT PANEL -->
+  <div id="inputPanel" style="display:none">
+
+    <!-- FREETEXT -->
+    <div id="modeFreetext" class="hidden">
+      <div class="irow">
+        <textarea id="ftInput" rows="3" placeholder="Ditt svar..."></textarea>
+        <button class="btn-send" id="ftSend">→</button>
+      </div>
+      <div class="char-ct"><span id="ftCount">0</span> tecken</div>
+      <div class="hint">CTRL+ENTER för att skicka</div>
+    </div>
+
+    <!-- SHORTTEXT -->
+    <div id="modeShorttext" class="hidden">
+      <div class="irow">
+        <input type="text" id="stInput" placeholder="Kort svar...">
+        <button class="btn-send" id="stSend">→</button>
+      </div>
+      <div class="hint">ENTER för att skicka</div>
+    </div>
+
+    <!-- YESNO -->
+    <div id="modeYesno" class="hidden">
+      <div class="yesno-grid">
+        <button class="btn-yesno" data-val="Ja">JA</button>
+        <button class="btn-yesno" data-val="Nej">NEJ</button>
+      </div>
+    </div>
+
+    <!-- CHOICE -->
+    <div id="modeChoice" class="hidden">
+      <div class="choice-grid" id="choiceGrid"></div>
+    </div>
+
+    <!-- MULTISELECT -->
+    <div id="modeMulti" class="hidden">
+      <div class="choice-grid" id="multiGrid"></div>
+      <div class="mt12">
+        <button class="btn-send" id="multiSend">BEKRÄFTA VAL →</button>
+      </div>
+    </div>
+
+    <!-- RANGE -->
+    <div id="modeRange" class="hidden">
+      <div class="range-disp">
+        <em id="rdMin">0</em> – <em id="rdMax">100</em>
+        <span style="font-size:14px;color:var(--text-muted);" id="rdUnit"></span>
+      </div>
+      <div class="rslider-wrap" id="rWrap">
+        <div class="rtrack"><div class="rfill" id="rFill"></div></div>
+        <input type="range" id="rMin">
+        <input type="range" id="rMax">
+        <div class="rthumb" id="rThMin"></div>
+        <div class="rthumb" id="rThMax"></div>
+      </div>
+      <div class="rlabels">
+        <span id="rlMin"></span>
+        <span id="rlMax"></span>
+      </div>
+      <div class="range-opts">
+        <button class="snap-btn on" id="snapBtn">SNAP</button>
+        <span style="font-size:10px;color:var(--text-dim);" id="snapLbl">PÅ</span>
+        <button class="btn-send" style="margin-left:auto;" id="rangeSend">BEKRÄFTA →</button>
+      </div>
+    </div>
+
+    <!-- SCALE -->
+    <div id="modeScale" class="hidden">
+      <div class="scale-val" id="scaleVal">5</div>
+      <div class="scale-wrap">
+        <div class="strack"><div class="sfill" id="sFill" style="width:50%"></div></div>
+        <input type="range" id="scaleInput" min="1" max="10" value="5">
+      </div>
+      <div class="slbls">
+        <span id="sLow">Låg</span>
+        <span id="sHigh">Hög</span>
+      </div>
+      <div class="mt12">
+        <button class="btn-send" id="scaleSend">BEKRÄFTA →</button>
+      </div>
+    </div>
+
+    <!-- EMAIL -->
+    <div id="modeEmail" class="hidden">
+      <div class="irow">
+        <input type="email" id="emInput" placeholder="din@email.com">
+        <button class="btn-send" id="emSend">→</button>
+      </div>
+      <div class="efb" id="emFb"></div>
+    </div>
+
+    <!-- NUMBER -->
+    <div id="modeNumber" class="hidden">
+      <div class="num-row">
+        <div class="num-ctrl">
+          <button class="num-step" id="numMinus">−</button>
+        </div>
+        <input type="number" id="numInput" value="0" style="text-align:center;">
+        <div class="num-ctrl">
+          <button class="num-step" id="numPlus">+</button>
+        </div>
+        <span class="num-unit" id="numUnit"></span>
+        <button class="btn-send" style="margin-left:auto;" id="numSend">→</button>
+      </div>
+    </div>
+
+    <!-- FILE -->
+    <div id="modeFile" class="hidden">
+      <input type="file" id="fileInput" style="display:none" accept="image/*,.pdf,.txt,.doc,.docx">
+      <div class="dropzone" id="dzone">
+        <div class="dz-icon">📁</div>
+        <div class="dz-text">DRA OCH SLÄPP FIL HÄR</div>
+        <div class="dz-sub">eller klicka · jpg, png, pdf, txt, doc</div>
+      </div>
+      <div class="fprev hidden" id="fprev">
+        <span style="color:var(--red)">▣</span>
+        <span class="fprev-name" id="fName"></span>
+        <span class="fprev-sz"   id="fSz"></span>
+        <button class="fclear" id="fclear">✕</button>
+      </div>
+      <div class="mt12">
+        <button class="btn-send hidden" id="fileSend">LADDA UPP OCH FORTSÄTT →</button>
+      </div>
+    </div>
+
+    <!-- DATE -->
+    <div id="modeDate" class="hidden">
+      <div class="irow">
+        <input type="date" id="dtInput">
+        <button class="btn-send" id="dtSend">→</button>
+      </div>
+    </div>
+
+    <!-- RATING (1-5 stars as buttons) -->
+    <div id="modeRating" class="hidden">
+      <div class="choice-grid" id="ratingGrid"></div>
+    </div>
+
+    <!-- CHAT INPUT -->
+    <div id="modeChatInput" class="hidden">
+      <div class="irow">
+        <input type="text" id="chatInput" placeholder="Argumentera, fråga eller nyansera...">
+        <button class="btn-send" id="chatSend">→</button>
+      </div>
+      <div class="hint">ENTER för att skicka</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────
+// API key lives in Vercel environment variable GEMINI_API_KEY (server-side)
+const API_URL = '/api/generate';
+
+const SYSTEM_PROMPT = `Du är VERDICT — en professionell AI-beslutsrådgivare. Din uppgift är att ställa precisa, relevanta frågor för att kartlägga användarens situation och behov, och sedan leverera en tydlig, välmotiverad rekommendation.
+
+ABSOLUTA REGLER:
+1. Tacka ALDRIG för svaret. Inga fraser som "Tack för det", "Bra svar", "Intressant" — inga artighetsfraser alls. Gå direkt på nästa fråga.
+2. Ställ EN fråga i taget. Aldrig fler.
+3. Välj det inputMode som passar bäst för just den frågan.
+4. Professionell, koncis ton. Inga tomma utfyllnadsord.
+5. Fråga 4–7 följdfrågor innan rekommendation, om det inte är uppenbart tidigare.
+6. Om användaren argumenterar mot rekommendationen — bemöt sakligt, håll fast vid eller revidera med tydlig motivering.
+7. Svara ALLTID med giltig JSON. Inga markdown-block, inga kodblock, bara ren JSON.
+
+INPUT MODE GUIDE:
+- "freetext" — öppna, nyanserade svar som kräver förklaring
+- "shorttext" — korta precisa svar (namn, plats, nyckelord)
+- "yesno" — binära ja/nej-frågor
+- "choice" — 3–6 tydliga alternativ, ett väljs
+- "multiselect" — 3–8 alternativ, flera kan väljas
+- "range" — intervall: budget, ålder, tid, etc.
+- "scale" — gradering 1–10 (prioritet, vikt, nöjdhet)
+- "rating" — betyg 1–5 (upplevelse, kvalitet)
+- "email" — när e-postadress behövs
+- "number" — exakta siffror (antal, år, vikt, etc.)
+- "file" — när dokument, bild eller fil behöver analyseras
+- "date" — datum (start, deadline, etc.)
+
+SVARFORMAT (exakt detta JSON-schema alltid):
+{
+  "type": "question",
+  "question": "Din fråga",
+  "context": "Varför du frågar detta (1 kort mening, kan lämnas tom)",
+  "inputMode": "freetext|shorttext|yesno|choice|multiselect|range|scale|rating|email|number|file|date",
+  "choices": ["Alt 1", "Alt 2"],
+  "rangeConfig": { "min": 0, "max": 100000, "unit": "kr", "step": 1000 },
+  "scaleConfig": { "min": 1, "max": 10, "lowLabel": "Inte alls", "highLabel": "Extremt" },
+  "numberConfig": { "min": 0, "max": null, "step": 1, "unit": "st" }
+}
+
+FÖR REKOMMENDATION:
+{
+  "type": "recommendation",
+  "recommendation": "Fullständig rekommendation. Var konkret, specifik och motivera. Använd radbrytningar för struktur. Inga markdown-headers.",
+  "confidence": 85
+}
+
+FÖR CHAT EFTER REKOMMENDATION:
+{
+  "type": "chat",
+  "chatReply": "Ditt svar"
+}`;
+
+// ── STATE ─────────────────────────────────────────────────────────────────
+const S = {
+  phase: 'initial',
+  hist: [],
+  uiHist: [],
+  mode: null,
+  rangeConf: {},
+  scaleConf: {},
+  numConf: {},
+  snap: true,
+  file: null,
+  picked: new Set(),
+  busy: false,
+};
+
+// ── DOM ───────────────────────────────────────────────────────────────────
+const g = id => document.getElementById(id);
+const show  = el => el.classList.remove('hidden');
+const hide  = el => el.classList.add('hidden');
+
+const dom = {
+  init:    g('initialScreen'),
+  initInp: g('initInput'),
+  startBtn:g('startBtn'),
+  conv:    g('conversation'),
+  aq:      g('activeQ'),
+  aqText:  g('aqText'),
+  aqCtx:   g('aqCtx'),
+  typing:  g('typingIndicator'),
+  rec:     g('recCard'),
+  recBody: g('recBody'),
+  chat:    g('chatContainer'),
+  panel:   g('inputPanel'),
+  sPip:    g('sPip'),
+  sLbl:    g('sLbl'),
+};
+
+// ── STATUS ────────────────────────────────────────────────────────────────
+function setStatus(s) {
+  dom.sPip.className = 'status-pip' + (s==='ready' ? ' on' : s==='err' ? ' err' : '');
+  dom.sLbl.textContent = {ready:'REDO', thinking:'ANALYSERAR', err:'FEL', idle:'IDLE'}[s] || s.toUpperCase();
+}
+
+// ── FORMAT ────────────────────────────────────────────────────────────────
+function fmt(n) { return Number(n).toLocaleString('sv-SE'); }
+
+// ── HIDE ALL MODES ────────────────────────────────────────────────────────
+const MODES = ['modeFreetext','modeShorttext','modeYesno','modeChoice','modeMulti',
+               'modeRange','modeScale','modeEmail','modeNumber','modeFile','modeDate',
+               'modeRating','modeChatInput'];
+function hideModes() { MODES.forEach(id => { const e=g(id); if(e) e.classList.add('hidden'); }); }
+
+// ── TOAST ─────────────────────────────────────────────────────────────────
+function toast(msg) {
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+    background:var(--red-dim);border:1px solid var(--red);color:var(--text);
+    font-family:var(--font-m);font-size:11px;letter-spacing:1px;
+    padding:10px 20px;z-index:9997;border-radius:2px;animation:fadeUp .3s ease-out;`;
+  t.textContent = '⚠ ' + msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ── SCROLL ────────────────────────────────────────────────────────────────
+function scrollEnd() { window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}); }
+
+// ── API ───────────────────────────────────────────────────────────────────
+async function callGemini(userMsg, fileData=null) {
+  setStatus('thinking');
+  S.busy = true;
+
+  const parts = [{text: userMsg}];
+  if (fileData) parts.unshift({inline_data:{mime_type:fileData.mimeType, data:fileData.data}});
+  S.hist.push({role:'user', parts});
+
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        system_instruction: {parts:[{text:SYSTEM_PROMPT}]},
+        contents: S.hist,
+        generationConfig: {temperature:.8, maxOutputTokens:2048}
+      })
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(()=>({}));
+      if (errData.error === 'API key not configured') {
+        throw new Error('GEMINI_API_KEY saknas — lägg till den i Vercel → Settings → Environment Variables');
+      }
+      throw new Error('HTTP ' + res.status + (errData.error?.message ? ': ' + errData.error.message : ''));
+    }
+    const data = await res.json();
+    let raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    raw = raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+
+    const parsed = JSON.parse(raw);
+    S.hist.push({role:'model', parts:[{text:raw}]});
+    setStatus('ready');
+    S.busy = false;
+    return parsed;
+  } catch(err) {
+    console.error(err);
+    setStatus('err');
+    S.busy = false;
+    toast(err.message || 'VERDICT kunde inte nå AI-motorn.');
+    return null;
+  }
+}
+
+// ── ADD UI HISTORY ITEM ───────────────────────────────────────────────────
+function addHistItem(question, answer) {
+  const div = document.createElement('div');
+  div.className = 'conv-item';
+  div.innerHTML = `
+    <div class="conv-q">
+      <span class="conv-q-prefix">//</span>
+      <span class="conv-q-text">${escHtml(question)}</span>
+    </div>
+    <div class="conv-a">
+      <span class="conv-a-arrow">→</span>
+      <span class="conv-a-text">${escHtml(answer)}</span>
+    </div>`;
+  dom.conv.appendChild(div);
+  show(dom.conv);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── RENDER QUESTION ───────────────────────────────────────────────────────
+function renderQuestion(p) {
+  if (p.type === 'recommendation') { renderRec(p); return; }
+
+  dom.aqText.textContent = p.question || '';
+  dom.aqCtx.textContent  = p.context  || '';
+  show(dom.aq);
+  dom.panel.style.display = 'block';
+
+  S.mode = p.inputMode || 'shorttext';
+  hideModes();
+
+  switch(S.mode) {
+    case 'freetext':    setupFreetext(); break;
+    case 'shorttext':   setupShorttext(); break;
+    case 'yesno':       setupYesno(); break;
+    case 'choice':      setupChoice(p.choices||[]); break;
+    case 'multiselect': setupMulti(p.choices||[]); break;
+    case 'range':       setupRange(p.rangeConfig||{}); break;
+    case 'scale':       setupScale(p.scaleConfig||{}); break;
+    case 'rating':      setupRating(); break;
+    case 'email':       setupEmail(); break;
+    case 'number':      setupNumber(p.numberConfig||{}); break;
+    case 'file':        setupFile(); break;
+    case 'date':        setupDate(); break;
+    default:            setupShorttext();
+  }
+  scrollEnd();
+}
+
+// ── SUBMIT ANSWER ─────────────────────────────────────────────────────────
+async function submit(answer, fileData=null) {
+  if (S.busy) return;
+  const q = dom.aqText.textContent;
+  addHistItem(q, answer);
+  hide(dom.aq);
+  dom.panel.style.display = 'none';
+  show(dom.typing);
+  scrollEnd();
+
+  const resp = await callGemini(answer, fileData);
+  hide(dom.typing);
+  if (!resp) return;
+  if (resp.type === 'recommendation') renderRec(resp);
+  else renderQuestion(resp);
+}
+
+// ── RECOMMENDATION ────────────────────────────────────────────────────────
+function renderRec(p) {
+  hide(dom.aq);
+  dom.panel.style.display = 'none';
+  dom.recBody.textContent = p.recommendation || p.chatReply || '';
+
+  // confidence
+  if (p.confidence) {
+    const cw = g('confWrap');
+    show(cw);
+    setTimeout(() => { g('confFill').style.width = p.confidence + '%'; }, 100);
+  }
+
+  show(dom.rec);
+  S.phase = 'recommendation';
+  scrollEnd();
+}
+
+// ── CHAT MODE ─────────────────────────────────────────────────────────────
+function enterChat() {
+  hide(dom.rec);
+  show(dom.chat);
+  addChatMsg('ai', dom.recBody.textContent);
+  hideModes();
+  show(g('modeChatInput'));
+  dom.panel.style.display = 'block';
+  S.phase = 'chat';
+  scrollEnd();
+}
+
+function addChatMsg(role, text) {
+  const isU = role === 'user';
+  const div = document.createElement('div');
+  div.className = 'cmsg';
+  div.innerHTML = `<div class="cmsg-role ${isU?'u':''}">${isU?'DU':'AI'}</div>
+    <div class="cmsg-text ${isU?'u':''}">${escHtml(text)}</div>`;
+  dom.chat.appendChild(div);
+  scrollEnd();
+}
+
+async function sendChat(text) {
+  if (S.busy || !text.trim()) return;
+  addChatMsg('user', text);
+  g('chatInput').value = '';
+  hide(g('modeChatInput'));
+  show(dom.typing);
+  scrollEnd();
+  const r = await callGemini(text);
+  hide(dom.typing);
+  if (!r) { show(g('modeChatInput')); return; }
+  addChatMsg('ai', r.chatReply || r.recommendation || '');
+  show(g('modeChatInput'));
+  scrollEnd();
+}
+
+// ── MODE SETUPS ───────────────────────────────────────────────────────────
+
+function setupFreetext() {
+  const el = g('modeFreetext');
+  show(el);
+  const inp = g('ftInput');
+  inp.value = '';
+  g('ftCount').textContent = '0';
+  inp.style.height = '';
+  inp.focus();
+  inp.oninput = () => {
+    g('ftCount').textContent = inp.value.length;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 220) + 'px';
+  };
+}
+
+function setupShorttext() {
+  show(g('modeShorttext'));
+  const inp = g('stInput');
+  inp.value = '';
+  inp.focus();
+}
+
+function setupYesno() { show(g('modeYesno')); }
+
+function setupChoice(choices) {
+  const grid = g('choiceGrid');
+  grid.innerHTML = '';
+  choices.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'btn-choice';
+    b.textContent = c;
+    b.onclick = () => submit(c);
+    grid.appendChild(b);
+  });
+  show(g('modeChoice'));
+}
+
+function setupMulti(choices) {
+  const grid = g('multiGrid');
+  grid.innerHTML = '';
+  S.picked = new Set();
+  choices.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'btn-choice';
+    b.textContent = c;
+    b.onclick = () => {
+      if (S.picked.has(c)) { S.picked.delete(c); b.classList.remove('sel'); }
+      else                 { S.picked.add(c);    b.classList.add('sel'); }
+    };
+    grid.appendChild(b);
+  });
+  show(g('modeMulti'));
+}
+
+function setupRange(conf) {
+  const {min=0, max=100000, unit='', step=1000} = conf;
+  S.rangeConf = {min,max,unit,step};
+
+  const rMin = g('rMin'), rMax = g('rMax');
+  rMin.min = rMax.min = min;
+  rMin.max = rMax.max = max;
+  rMin.step= rMax.step= step;
+
+  const vMin = Math.round((min+(max-min)*.2)/step)*step;
+  const vMax = Math.round((min+(max-min)*.8)/step)*step;
+  rMin.value = vMin; rMax.value = vMax;
+
+  g('rdUnit').textContent = ' ' + unit;
+  g('rlMin').textContent = fmt(min) + ' ' + unit;
+  g('rlMax').textContent = fmt(max) + ' ' + unit;
+
+  updateRange();
+
+  rMin.oninput = () => { if(+rMin.value>+rMax.value) rMin.value=rMax.value; updateRange(); };
+  rMax.oninput = () => { if(+rMax.value<+rMin.value) rMax.value=rMin.value; updateRange(); };
+
+  S.snap = true;
+  g('snapBtn').classList.add('on');
+  g('snapLbl').textContent = 'PÅ';
+
+  show(g('modeRange'));
+}
+
+function updateRange() {
+  const {min,max,unit} = S.rangeConf;
+  const vn = +g('rMin').value, vx = +g('rMax').value;
+  const pn = ((vn-min)/(max-min))*100;
+  const px = ((vx-min)/(max-min))*100;
+  g('rFill').style.left  = pn+'%';
+  g('rFill').style.width = (px-pn)+'%';
+  g('rThMin').style.left = pn+'%';
+  g('rThMax').style.left = px+'%';
+  g('rdMin').textContent = fmt(vn);
+  g('rdMax').textContent = fmt(vx);
+}
+
+function setupScale(conf) {
+  const {min=1, max=10, lowLabel='Låg', highLabel='Hög'} = conf;
+  S.scaleConf = {min,max,lowLabel,highLabel};
+  const inp = g('scaleInput');
+  inp.min = min; inp.max = max;
+  inp.value = Math.floor((min+max)/2);
+  g('sLow').textContent  = lowLabel;
+  g('sHigh').textContent = highLabel;
+  updateScale();
+  inp.oninput = updateScale;
+  show(g('modeScale'));
+}
+
+function updateScale() {
+  const {min,max} = S.scaleConf;
+  const v = +g('scaleInput').value;
+  g('scaleVal').textContent = v;
+  g('sFill').style.width = ((v-min)/(max-min)*100)+'%';
+}
+
+function setupRating() {
+  const grid = g('ratingGrid');
+  grid.innerHTML = '';
+  const stars = ['★','★★','★★★','★★★★','★★★★★'];
+  stars.forEach((s,i) => {
+    const b = document.createElement('button');
+    b.className = 'btn-choice';
+    b.textContent = s + '  ' + (i+1) + '/5';
+    b.style.fontFamily = 'monospace';
+    b.onclick = () => submit(`${i+1}/5`);
+    grid.appendChild(b);
+  });
+  show(g('modeRating'));
+}
+
+function setupEmail() {
+  show(g('modeEmail'));
+  const inp = g('emInput');
+  inp.value = '';
+  g('emFb').textContent = '';
+  g('emFb').className = 'efb';
+  inp.focus();
+}
+
+function setupNumber(conf) {
+  const {min=0, max=null, step=1, unit=''} = conf;
+  S.numConf = {min,max,step,unit};
+  const inp = g('numInput');
+  inp.min = min;
+  if (max!==null) inp.max = max;
+  inp.step = step;
+  inp.value = min;
+  g('numUnit').textContent = unit;
+  g('numMinus').onclick = () => {
+    let v = parseFloat(inp.value) - step;
+    inp.value = (min!==null) ? Math.max(v,min) : v;
+  };
+  g('numPlus').onclick = () => {
+    let v = parseFloat(inp.value) + step;
+    inp.value = (max!==null) ? Math.min(v,max) : v;
+  };
+  show(g('modeNumber'));
+  inp.focus();
+}
+
+function setupFile() {
+  show(g('modeFile'));
+  show(g('dzone'));
+  hide(g('fprev'));
+  hide(g('fileSend'));
+  S.file = null;
+  g('fileInput').value = '';
+}
+
+function setupDate() {
+  show(g('modeDate'));
+  g('dtInput').value = new Date().toISOString().split('T')[0];
+  g('dtInput').focus();
+}
+
+// ── EVENT BINDINGS ────────────────────────────────────────────────────────
+
+// Start session
+dom.startBtn.onclick = startSession;
+dom.initInp.addEventListener('keydown', e => {
+  if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); startSession(); }
+});
+
+async function startSession() {
+  const txt = dom.initInp.value.trim();
+  if (!txt || S.busy) return;
+  hide(dom.init);
+  show(dom.typing);
+  S.phase = 'questioning';
+  setStatus('thinking');
+
+  const r = await callGemini(txt);
+  hide(dom.typing);
+  if (!r) return;
+
+  // Show initial problem in conv as preamble
+  const div = document.createElement('div');
+  div.className = 'conv-item';
+  div.innerHTML = `<div class="conv-q">
+    <span class="conv-q-prefix" style="color:var(--text-muted)">//</span>
+    <span class="conv-q-text" style="color:var(--text-muted);font-style:italic;">${escHtml(txt)}</span>
+  </div>`;
+  dom.conv.appendChild(div);
+  show(dom.conv);
+
+  renderQuestion(r);
+}
+
+// Freetext
+g('ftSend').onclick = () => { const v=g('ftInput').value.trim(); if(v) submit(v); };
+g('ftInput').addEventListener('keydown', e => { if(e.key==='Enter'&&e.ctrlKey){e.preventDefault();g('ftSend').click();} });
+
+// Shorttext
+g('stSend').onclick = () => { const v=g('stInput').value.trim(); if(v) submit(v); };
+g('stInput').addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();g('stSend').click();} });
+
+// Yesno
+document.querySelectorAll('.btn-yesno').forEach(b => {
+  b.onclick = () => submit(b.dataset.val);
+});
+
+// Multiselect
+g('multiSend').onclick = () => {
+  if (S.picked.size===0) return;
+  submit([...S.picked].join(', '));
+};
+
+// Range
+g('snapBtn').onclick = () => {
+  S.snap = !S.snap;
+  g('snapBtn').classList.toggle('on', S.snap);
+  g('snapLbl').textContent = S.snap ? 'PÅ' : 'AV';
+  const step = S.snap ? (S.rangeConf.step||1) : 1;
+  g('rMin').step = g('rMax').step = step;
+};
+g('rangeSend').onclick = () => {
+  const vn = fmt(+g('rMin').value);
+  const vx = fmt(+g('rMax').value);
+  const u  = S.rangeConf.unit || '';
+  submit(`${vn} – ${vx}${u?' '+u:''}`);
+};
+
+// Scale
+g('scaleSend').onclick = () => {
+  const v = g('scaleInput').value;
+  submit(`${v} / ${S.scaleConf.max||10}`);
+};
+
+// Email
+g('emSend').onclick = () => {
+  const v = g('emInput').value.trim();
+  const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if (!ok) {
+    g('emFb').textContent = '✕ Ogiltig e-postadress';
+    g('emFb').className = 'efb bad';
+    return;
+  }
+  submit(v);
+};
+g('emInput').addEventListener('input', () => {
+  const v = g('emInput').value;
+  const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if (v.length > 4) {
+    g('emFb').textContent = ok ? '✓ Giltig adress' : '✕ Ogiltig format';
+    g('emFb').className = 'efb ' + (ok?'ok':'bad');
+  }
+});
+g('emInput').addEventListener('keydown', e => { if(e.key==='Enter') g('emSend').click(); });
+
+// Number
+g('numSend').onclick = () => {
+  const v = g('numInput').value;
+  const u = S.numConf.unit || '';
+  submit(`${v}${u?' '+u:''}`);
+};
+g('numInput').addEventListener('keydown', e => { if(e.key==='Enter') g('numSend').click(); });
+
+// File
+const dzone = g('dzone'), fInput = g('fileInput');
+dzone.onclick = () => fInput.click();
+fInput.onchange = e => handleFile(e.target.files[0]);
+dzone.addEventListener('dragover', e => { e.preventDefault(); dzone.classList.add('over'); });
+dzone.addEventListener('dragleave', () => dzone.classList.remove('over'));
+dzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dzone.classList.remove('over');
+  handleFile(e.dataTransfer.files[0]);
+});
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const b64 = ev.target.result.split(',')[1];
+    S.file = {data:b64, mimeType:file.type, name:file.name};
+    hide(g('dzone'));
+    g('fName').textContent = file.name;
+    g('fSz').textContent   = (file.size/1024).toFixed(1)+' KB';
+    show(g('fprev'));
+    show(g('fileSend'));
+  };
+  reader.readAsDataURL(file);
+}
+
+g('fclear').onclick = () => {
+  S.file = null; fInput.value='';
+  show(g('dzone')); hide(g('fprev')); hide(g('fileSend'));
+};
+g('fileSend').onclick = () => {
+  if (S.file) submit(`[Fil uppladdad: ${S.file.name}]`, S.file);
+};
+
+// Date
+g('dtSend').onclick = () => {
+  const v = g('dtInput').value;
+  if (v) {
+    const d = new Date(v);
+    const f = d.toLocaleDateString('sv-SE',{year:'numeric',month:'long',day:'numeric'});
+    submit(f);
+  }
+};
+g('dtInput').addEventListener('keydown', e => { if(e.key==='Enter') g('dtSend').click(); });
+
+// Rec buttons
+g('argueBtn').onclick = enterChat;
+g('resetBtn').onclick = reset;
+
+// Chat
+g('chatSend').onclick = () => sendChat(g('chatInput').value.trim());
+g('chatInput').addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();g('chatSend').click();} });
+
+// ── RESET ─────────────────────────────────────────────────────────────────
+function reset() {
+  Object.assign(S, {
+    phase:'initial', hist:[], uiHist:[], mode:null,
+    rangeConf:{}, scaleConf:{}, numConf:{},
+    snap:true, file:null, picked:new Set(), busy:false
+  });
+  dom.conv.innerHTML = '';
+  dom.chat.innerHTML = '';
+  dom.aqText.textContent = '';
+  dom.aqCtx.textContent  = '';
+  dom.initInp.value = '';
+
+  [dom.conv, dom.aq, dom.typing, dom.rec, dom.chat].forEach(e => e.classList.add('hidden'));
+  dom.panel.style.display = 'none';
+  hideModes();
+  show(dom.init);
+
+  // reset confidence
+  g('confFill').style.width = '0%';
+  g('confWrap').classList.add('hidden');
+
+  setStatus('idle');
+  window.scrollTo({top:0, behavior:'smooth'});
+  dom.initInp.focus();
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+setStatus('idle');
+dom.initInp.focus();
+</script>
+</body>
+</html>
