@@ -564,6 +564,8 @@
       font-size:13px; color:var(--text);
       line-height:1.9; white-space:pre-wrap;
     }
+    .rec-body strong { color:var(--text); font-weight:700; }
+    .rec-body em { color:var(--text-muted); font-style:italic; }
     .rec-acts {
       display:flex; gap:10px; margin-top:24px;
       padding-top:20px; border-top:1px solid var(--border);
@@ -598,6 +600,120 @@
     ::-webkit-scrollbar-track { background:var(--bg); }
     ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
     ::-webkit-scrollbar-thumb:hover { background:var(--red-dim); }
+
+
+    /* ── PAST CHATS ── */
+    .sidebar-toggle {
+      position: fixed;
+      top: 20px; right: 20px;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      color: var(--text-muted);
+      font-family: var(--font-m);
+      font-size: 10px; letter-spacing: 2px;
+      padding: 8px 14px;
+      cursor: pointer;
+      transition: all var(--ease);
+      border-radius: var(--r);
+      z-index: 100;
+    }
+    .sidebar-toggle:hover { border-color:var(--red); color:var(--text); }
+
+    .sidebar {
+      position: fixed;
+      top: 0; right: 0;
+      width: 300px; height: 100vh;
+      background: var(--surface);
+      border-left: 1px solid var(--border2);
+      z-index: 200;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform .3s cubic-bezier(.4,0,.2,1);
+    }
+    .sidebar.open { transform: translateX(0); }
+
+    .sidebar-hdr {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .sidebar-title { font-family: var(--font-h); font-size: 20px; letter-spacing: 3px; }
+    .sidebar-close {
+      background: none; border: none; color: var(--text-muted);
+      font-size: 18px; cursor: pointer; transition: color var(--ease);
+      line-height: 1;
+    }
+    .sidebar-close:hover { color: var(--red); }
+
+    .sidebar-list {
+      flex: 1; overflow-y: auto;
+      padding: 12px 0;
+    }
+    .sidebar-empty {
+      padding: 24px 20px;
+      font-size: 11px; color: var(--text-dim);
+      text-align: center; letter-spacing: 1px;
+    }
+    .chat-item {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--ease);
+      position: relative;
+    }
+    .chat-item:hover { background: var(--surface2); }
+    .chat-item-topic {
+      font-size: 12px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .chat-item-meta {
+      font-size: 10px; color: var(--text-dim); letter-spacing: 1px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .chat-item-del {
+      background: none; border: none; color: var(--text-dim);
+      cursor: pointer; font-size: 12px; padding: 0 4px;
+      transition: color var(--ease); line-height: 1;
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      opacity: 0;
+    }
+    .chat-item:hover .chat-item-del { opacity: 1; }
+    .chat-item-del:hover { color: var(--red); }
+
+    .sidebar-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 199;
+      opacity: 0; pointer-events: none;
+      transition: opacity .3s;
+    }
+    .sidebar-overlay.open { opacity: 1; pointer-events: all; }
+
+    /* ── UI POLISH ── */
+    .aq-text { letter-spacing: .3px; }
+    .conv-q-text { letter-spacing: .3px; }
+
+    /* Nicer rec card */
+    #recCard {
+      position: relative;
+      overflow: hidden;
+    }
+    #recCard::before {
+      content: 'VERDICT';
+      position: absolute;
+      right: -10px; top: 10px;
+      font-family: var(--font-h);
+      font-size: 80px;
+      color: var(--text-dim);
+      opacity: .15;
+      pointer-events: none;
+      letter-spacing: 4px;
+    }
+
+    /* Separator line in conv */
+    .conv-item { position: relative; }
 
     @media(max-width:480px){
       .logo{font-size:38px;}
@@ -826,6 +942,22 @@
     </div>
 
   </div>
+
+  <!-- SIDEBAR TOGGLE -->
+  <button class="sidebar-toggle" id="sidebarToggle">HISTORIK</button>
+
+  <!-- OVERLAY -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-hdr">
+      <div class="sidebar-title">HISTORIK</div>
+      <button class="sidebar-close" id="sidebarClose">✕</button>
+    </div>
+    <div class="sidebar-list" id="sidebarList"></div>
+  </div>
+
 </div>
 
 <script>
@@ -1064,10 +1196,27 @@ async function submit(answer, fileData=null) {
 }
 
 // ── RECOMMENDATION ────────────────────────────────────────────────────────
+function parseBold(text) {
+  // Convert **bold** and *italic* to HTML
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
+
 function renderRec(p) {
   hide(dom.aq);
   dom.panel.style.display = 'none';
-  dom.recBody.textContent = p.recommendation || p.chatReply || '';
+  const raw = p.recommendation || p.chatReply || '';
+  dom.recBody.innerHTML = parseBold(escHtml(raw).replace(/&lt;br&gt;/g,'<br>'));
+
+  // re-apply bold after escaping - redo with proper approach
+  const escaped = raw
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+  dom.recBody.innerHTML = escaped;
 
   // confidence
   if (p.confidence) {
@@ -1075,6 +1224,9 @@ function renderRec(p) {
     show(cw);
     setTimeout(() => { g('confFill').style.width = p.confidence + '%'; }, 100);
   }
+
+  // Save to localStorage
+  saveSession(raw);
 
   show(dom.rec);
   S.phase = 'recommendation';
@@ -1503,6 +1655,125 @@ function reset() {
   window.scrollTo({top:0, behavior:'smooth'});
   dom.initInp.focus();
 }
+
+
+// ── PAST CHATS (localStorage) ─────────────────────────────────────────────
+const STORAGE_KEY = 'verdict_sessions';
+
+function getSessions() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveSession(recommendation) {
+  const topic = S.hist[0]?.parts[0]?.text || 'Session';
+  const sessions = getSessions();
+  const session = {
+    id: Date.now(),
+    topic: topic.slice(0, 80),
+    recommendation,
+    date: new Date().toLocaleDateString('sv-SE'),
+    hist: S.hist,
+  };
+  sessions.unshift(session);
+  // Keep max 30 sessions
+  if (sessions.length > 30) sessions.pop();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  renderSidebar();
+}
+
+function deleteSession(id) {
+  const sessions = getSessions().filter(s => s.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  renderSidebar();
+}
+
+function loadSession(session) {
+  closeSidebar();
+  // Reset UI
+  reset();
+  // Brief delay then show rec
+  setTimeout(() => {
+    hide(dom.init);
+    S.hist = session.hist;
+    S.phase = 'recommendation';
+
+    // Rebuild conv from hist
+    let i = 0;
+    const msgs = session.hist;
+    if (msgs.length > 0) {
+      // Show initial topic
+      const topic = msgs[0]?.parts[0]?.text || '';
+      const div = document.createElement('div');
+      div.className = 'conv-item';
+      div.innerHTML = `<div class="conv-q">
+        <span class="conv-q-prefix" style="color:var(--text-muted)">//</span>
+        <span class="conv-q-text" style="color:var(--text-muted);font-style:italic;">${escHtml(topic)}</span>
+      </div>`;
+      dom.conv.appendChild(div);
+      show(dom.conv);
+    }
+
+    // Show recommendation
+    const raw = session.recommendation;
+    const escaped = raw
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/\n/g, '<br>');
+    dom.recBody.innerHTML = escaped;
+    show(dom.rec);
+    setStatus('ready');
+    scrollEnd();
+  }, 50);
+}
+
+function renderSidebar() {
+  const list = g('sidebarList');
+  const sessions = getSessions();
+  if (sessions.length === 0) {
+    list.innerHTML = '<div class="sidebar-empty">INGA SPARADE SESSIONER</div>';
+    return;
+  }
+  list.innerHTML = sessions.map(s => `
+    <div class="chat-item" data-id="${s.id}">
+      <div class="chat-item-topic">${escHtml(s.topic)}</div>
+      <div class="chat-item-meta">
+        <span>${s.date}</span>
+      </div>
+      <button class="chat-item-del" data-del="${s.id}" title="Ta bort">✕</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.chat-item').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.chat-item-del')) return;
+      const id = +el.dataset.id;
+      const session = getSessions().find(s => s.id === id);
+      if (session) loadSession(session);
+    });
+  });
+  list.querySelectorAll('.chat-item-del').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteSession(+btn.dataset.del);
+    });
+  });
+}
+
+function openSidebar() {
+  renderSidebar();
+  g('sidebar').classList.add('open');
+  g('sidebarOverlay').classList.add('open');
+}
+function closeSidebar() {
+  g('sidebar').classList.remove('open');
+  g('sidebarOverlay').classList.remove('open');
+}
+
+g('sidebarToggle').onclick  = openSidebar;
+g('sidebarClose').onclick   = closeSidebar;
+g('sidebarOverlay').onclick = closeSidebar;
 
 // ── INIT ──────────────────────────────────────────────────────────────────
 setStatus('idle');
