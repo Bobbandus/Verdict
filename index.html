@@ -412,10 +412,13 @@
 
     .rslider-wrap input[type=range] {
       position:absolute;
-      width:100%; height:100%; top:0; left:0;
+      width:100%; height:32px; top:0; left:0;
       opacity:0; cursor:pointer; pointer-events:all; margin:0;
       -webkit-appearance:none;
+      z-index:3;
     }
+    #rMin { z-index:3; }
+    #rMax { z-index:3; }
 
     .rthumb {
       position:absolute;
@@ -1185,23 +1188,47 @@ function setupRange(conf) {
   rMin.value = vMin; rMax.value = vMax;
 
   g('rdUnit').textContent = ' ' + unit;
-  g('rlMin').textContent = fmt(min) + ' ' + unit;
-  g('rlMax').textContent = fmt(max) + ' ' + unit;
+  g('rlMin').textContent = fmt(min) + (unit?' '+unit:'');
+  g('rlMax').textContent = fmt(max) + (unit?' '+unit:'');
 
   updateRange();
+  fixRangeZ();
 
-  rMin.oninput = () => { if(+rMin.value>+rMax.value) rMin.value=rMax.value; updateRange(); };
-  rMax.oninput = () => { if(+rMax.value<+rMin.value) rMax.value=rMin.value; updateRange(); };
+  rMin.oninput = () => {
+    if(+rMin.value >= +rMax.value) rMin.value = Math.max(min, +rMax.value - step);
+    updateRange(); fixRangeZ();
+  };
+  rMax.oninput = () => {
+    if(+rMax.value <= +rMin.value) rMax.value = Math.min(max, +rMin.value + step);
+    updateRange(); fixRangeZ();
+  };
 
   S.snap = true;
   g('snapBtn').classList.add('on');
-  g('snapLbl').textContent = 'PÅ';
+  g('snapLbl').textContent = 'PA';
 
   show(g('modeRange'));
 }
 
+function fixRangeZ() {
+  const rMin = g('rMin'), rMax = g('rMax');
+  const {min,max} = S.rangeConf;
+  const range = max - min;
+  const pMin = (+rMin.value - min) / range;
+  const pMax = (+rMax.value - min) / range;
+  if (pMax - pMin < 0.05) {
+    if (pMin > 0.5) {
+      rMin.style.zIndex = 5; rMax.style.zIndex = 4;
+    } else {
+      rMin.style.zIndex = 4; rMax.style.zIndex = 5;
+    }
+  } else {
+    rMin.style.zIndex = 3; rMax.style.zIndex = 3;
+  }
+}
+
 function updateRange() {
-  const {min,max,unit} = S.rangeConf;
+  const {min,max} = S.rangeConf;
   const vn = +g('rMin').value, vx = +g('rMax').value;
   const pn = ((vn-min)/(max-min))*100;
   const px = ((vx-min)/(max-min))*100;
@@ -1212,6 +1239,7 @@ function updateRange() {
   g('rdMin').textContent = fmt(vn);
   g('rdMax').textContent = fmt(vx);
 }
+
 
 function setupScale(conf) {
   const {min=1, max=10, lowLabel='Låg', highLabel='Hög'} = conf;
